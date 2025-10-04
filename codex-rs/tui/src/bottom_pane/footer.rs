@@ -342,10 +342,7 @@ const SHORTCUTS: &[ShortcutDescriptor] = &[
     },
     ShortcutDescriptor {
         id: ShortcutId::PasteImage,
-        bindings: &[ShortcutBinding {
-            key: key_hint::ctrl(KeyCode::Char('v')),
-            condition: DisplayCondition::Always,
-        }],
+        bindings: PASTE_IMAGE_BINDINGS,
         prefix: "",
         label: " to paste images",
     },
@@ -377,6 +374,18 @@ const SHORTCUTS: &[ShortcutDescriptor] = &[
         label: " to view transcript",
     },
 ];
+
+#[cfg(target_os = "macos")]
+const PASTE_IMAGE_BINDINGS: &[ShortcutBinding] = &[ShortcutBinding {
+    key: key_hint::cmd(KeyCode::Char('v')),
+    condition: DisplayCondition::Always,
+}];
+
+#[cfg(not(target_os = "macos"))]
+const PASTE_IMAGE_BINDINGS: &[ShortcutBinding] = &[ShortcutBinding {
+    key: key_hint::ctrl(KeyCode::Char('v')),
+    condition: DisplayCondition::Always,
+}];
 
 #[cfg(test)]
 mod tests {

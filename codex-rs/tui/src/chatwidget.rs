@@ -48,7 +48,6 @@ use crossterm::event::KeyCode;
 use crossterm::event::KeyEvent;
 use crossterm::event::KeyEventKind;
 use crossterm::event::KeyModifiers;
-use rand::Rng;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Constraint;
 use ratatui::layout::Layout;
@@ -895,8 +894,8 @@ impl ChatWidget {
             enhanced_keys_supported,
             auth_manager,
         } = common;
-        let mut rng = rand::rng();
-        let placeholder = EXAMPLE_PROMPTS[rng.random_range(0..EXAMPLE_PROMPTS.len())].to_string();
+        // No placeholder text – keep the composer empty until the user types.
+        let placeholder = String::new();
         let codex_op_tx = spawn_agent(config.clone(), app_event_tx.clone(), conversation_manager);
 
         Self {
@@ -956,8 +955,8 @@ impl ChatWidget {
             enhanced_keys_supported,
             auth_manager,
         } = common;
-        let mut rng = rand::rng();
-        let placeholder = EXAMPLE_PROMPTS[rng.random_range(0..EXAMPLE_PROMPTS.len())].to_string();
+        // No placeholder text – keep the composer empty until the user types.
+        let placeholder = String::new();
 
         let codex_op_tx =
             spawn_agent_from_existing(conversation, session_configured, app_event_tx.clone());
@@ -1023,6 +1022,19 @@ impl ChatWidget {
                 self.on_ctrl_c();
                 return;
             }
+            #[cfg(target_os = "macos")]
+            KeyEvent {
+                code: KeyCode::Char('v'),
+                modifiers: KeyModifiers::SUPER,
+                kind: KeyEventKind::Press,
+                ..
+            } => {
+                if let Ok((path, info)) = paste_image_to_temp_png() {
+                    self.attach_image(path, info.width, info.height, info.encoded_format.label());
+                }
+                return;
+            }
+            #[cfg(not(target_os = "macos"))]
             KeyEvent {
                 code: KeyCode::Char('v'),
                 modifiers: KeyModifiers::CONTROL,

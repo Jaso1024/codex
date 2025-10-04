@@ -145,7 +145,7 @@ impl Renderable for CustomPromptView {
             width: area.width,
             height: 1,
         };
-        let title_spans: Vec<Span<'static>> = vec![gutter(), self.title.clone().bold()];
+        let title_spans: Vec<Span<'static>> = vec![self.title.clone().bold()];
         Paragraph::new(Line::from(title_spans)).render(title_area, buf);
 
         // Optional context line
@@ -157,7 +157,7 @@ impl Renderable for CustomPromptView {
                 width: area.width,
                 height: 1,
             };
-            let spans: Vec<Span<'static>> = vec![gutter(), context_label.clone().cyan()];
+            let spans: Vec<Span<'static>> = vec![context_label.clone().cyan()];
             Paragraph::new(Line::from(spans)).render(context_area, buf);
             input_y = input_y.saturating_add(1);
         }
@@ -169,34 +169,13 @@ impl Renderable for CustomPromptView {
             width: area.width,
             height: input_height,
         };
-        if input_area.width >= 2 {
-            for row in 0..input_area.height {
-                Paragraph::new(Line::from(vec![gutter()])).render(
-                    Rect {
-                        x: input_area.x,
-                        y: input_area.y.saturating_add(row),
-                        width: 2,
-                        height: 1,
-                    },
-                    buf,
-                );
-            }
-
-            let text_area_height = input_area.height.saturating_sub(1);
+        if input_area.width >= 1 {
+            let text_area_height = input_height.saturating_sub(1);
             if text_area_height > 0 {
-                if input_area.width > 2 {
-                    let blank_rect = Rect {
-                        x: input_area.x.saturating_add(2),
-                        y: input_area.y,
-                        width: input_area.width.saturating_sub(2),
-                        height: 1,
-                    };
-                    Clear.render(blank_rect, buf);
-                }
                 let textarea_rect = Rect {
-                    x: input_area.x.saturating_add(2),
+                    x: input_area.x,
                     y: input_area.y.saturating_add(1),
-                    width: input_area.width.saturating_sub(2),
+                    width: input_area.width,
                     height: text_area_height,
                 };
                 let mut state = self.textarea_state.borrow_mut();
@@ -236,12 +215,8 @@ impl Renderable for CustomPromptView {
 
 impl CustomPromptView {
     fn input_height(&self, width: u16) -> u16 {
-        let usable_width = width.saturating_sub(2);
+        let usable_width = width;
         let text_height = self.textarea.desired_height(usable_width).clamp(1, 8);
         text_height.saturating_add(1).min(9)
     }
-}
-
-fn gutter() -> Span<'static> {
-    "▌ ".cyan()
 }

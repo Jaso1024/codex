@@ -10,8 +10,6 @@ use crate::markdown::MarkdownCitationContext;
 use crate::markdown::append_markdown;
 use crate::render::line_utils::line_to_static;
 use crate::render::line_utils::prefix_lines;
-use crate::style::user_message_style;
-use crate::terminal_palette::default_bg;
 use crate::text_formatting::format_and_truncate_tool_result;
 use crate::ui_consts::LIVE_PREFIX_COLS;
 use crate::wrapping::RtOptions;
@@ -95,7 +93,8 @@ impl HistoryCell for UserHistoryCell {
         // Use ratatui-aware word wrapping and prefixing to avoid lifetime issues.
         let wrap_width = width.saturating_sub(LIVE_PREFIX_COLS); // account for the ▌ prefix and trailing space
 
-        let style = user_message_style(default_bg());
+        // Transparent history: do not apply a background to user messages.
+        let style = Style::default();
 
         // Use our ratatui wrapping helpers for correct styling and lifetimes.
         let wrapped = word_wrap_lines(
@@ -382,52 +381,15 @@ pub(crate) fn new_session_info(
         rollout_path: _,
     } = event;
     if is_first_event {
-        // Header box rendered as history (so it appears at the very top)
+        // Header rendered as history (so it appears at the very top)
         let header = SessionHeaderHistoryCell::new(
             model,
             reasoning_effort,
             config.cwd.clone(),
             crate::version::CODEX_CLI_VERSION,
         );
-
-        // Help lines below the header (new copy and list)
-        let help_lines: Vec<Line<'static>> = vec![
-            "  To get started, describe a task or try one of these commands:"
-                .dim()
-                .into(),
-            Line::from(""),
-            Line::from(vec![
-                "  ".into(),
-                "/init".into(),
-                " - create an AGENTS.md file with instructions for Codex".dim(),
-            ]),
-            Line::from(vec![
-                "  ".into(),
-                "/status".into(),
-                " - show current session configuration".dim(),
-            ]),
-            Line::from(vec![
-                "  ".into(),
-                "/approvals".into(),
-                " - choose what Codex can do without approval".dim(),
-            ]),
-            Line::from(vec![
-                "  ".into(),
-                "/model".into(),
-                " - choose what model and reasoning effort to use".dim(),
-            ]),
-            Line::from(vec![
-                "  ".into(),
-                "/review".into(),
-                " - review any changes and find issues".dim(),
-            ]),
-        ];
-
         CompositeHistoryCell {
-            parts: vec![
-                Box::new(header),
-                Box::new(PlainHistoryCell { lines: help_lines }),
-            ],
+            parts: vec![Box::new(header)],
         }
     } else if config.model == model {
         CompositeHistoryCell { parts: vec![] }
@@ -513,57 +475,45 @@ impl SessionHeaderHistoryCell {
 
 impl HistoryCell for SessionHeaderHistoryCell {
     fn display_lines(&self, width: u16) -> Vec<Line<'static>> {
-        let Some(inner_width) = card_inner_width(width, SESSION_HEADER_MAX_INNER_WIDTH) else {
-            return Vec::new();
+        // Center a single-line text within the given width.
+        let center_line = |line: Line<'static>| -> Line<'static> {
+            let w = width as usize;
+            let lw = line.width().min(w);
+            if w <= lw {
+                return line;
+            }
+            let pad = (w - lw) / 2;
+            let mut spans = Vec::with_capacity(line.spans.len() + 1);
+            spans.push(" ".repeat(pad).into());
+            spans.extend(line.spans);
+            Line::from(spans)
         };
 
-        let make_row = |spans: Vec<Span<'static>>| Line::from(spans);
+        // Version line (dim), followed by a centered tagline and a compact hint row.
+        let mut out: Vec<Line<'static>> = Vec::new();
 
-        // Title line rendered inside the box: ">_ OpenAI Codex (vX)"
-        let title_spans: Vec<Span<'static>> = vec![
-            Span::from(">_ ").dim(),
-            Span::from("OpenAI Codex").bold(),
-            Span::from(" ").dim(),
-            Span::from(format!("(v{})", self.version)).dim(),
-        ];
+        out.push(center_line(Line::from(format!("v{}", self.version).dim())));
 
-        const CHANGE_MODEL_HINT_COMMAND: &str = "/model";
-        const CHANGE_MODEL_HINT_EXPLANATION: &str = " to change";
-        const DIR_LABEL: &str = "directory:";
-        let label_width = DIR_LABEL.len();
-        let model_label = format!(
-            "{model_label:<label_width$}",
-            model_label = "model:",
-            label_width = label_width
-        );
-        let reasoning_label = self.reasoning_label();
-        let mut model_spans: Vec<Span<'static>> = vec![
-            Span::from(format!("{model_label} ")).dim(),
-            Span::from(self.model.clone()),
-        ];
-        if let Some(reasoning) = reasoning_label {
-            model_spans.push(Span::from(" "));
-            model_spans.push(Span::from(reasoning));
-        }
-        model_spans.push("   ".dim());
-        model_spans.push(CHANGE_MODEL_HINT_COMMAND.cyan());
-        model_spans.push(CHANGE_MODEL_HINT_EXPLANATION.dim());
+        out.push(Line::from(""));
+        out.push(center_line(Line::from(
+            "You are standing in an open terminal. An AI awaits your commands.".italic(),
+        )));
 
-        let dir_label = format!("{DIR_LABEL:<label_width$}");
-        let dir_prefix = format!("{dir_label} ");
-        let dir_prefix_width = UnicodeWidthStr::width(dir_prefix.as_str());
-        let dir_max_width = inner_width.saturating_sub(dir_prefix_width);
-        let dir = self.format_directory(Some(dir_max_width));
-        let dir_spans = vec![Span::from(dir_prefix).dim(), Span::from(dir)];
+        out.push(Line::from(""));
 
-        let lines = vec![
-            make_row(title_spans),
-            make_row(Vec::new()),
-            make_row(model_spans),
-            make_row(dir_spans),
-        ];
+        // Compact usage hints, centered.
+        let hints = if self.reasoning_label().is_some() {
+            // If a reasoning effort is active, include it in the hint line near the end.
+            let reasoning = self.reasoning_label().unwrap_or("");
+            format!("ENTER to send • Shift+ENTER for a new line • @ to mention files • {reasoning}")
+        } else {
+            "ENTER to send • Shift+ENTER for a new line • @ to mention files".to_string()
+        };
+        out.push(center_line(Line::from(hints.dim())));
 
-        with_border(lines)
+        // No additional help block here; keep the header minimal.
+
+        out
     }
 }
 

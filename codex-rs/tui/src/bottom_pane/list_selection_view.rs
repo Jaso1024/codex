@@ -19,8 +19,6 @@ use crate::render::Insets;
 use crate::render::RectExt as _;
 use crate::render::renderable::ColumnRenderable;
 use crate::render::renderable::Renderable;
-use crate::style::user_message_style;
-use crate::terminal_palette;
 
 use super::CancellationEvent;
 use super::bottom_pane_view::BottomPaneView;
@@ -349,9 +347,8 @@ impl Renderable for ListSelectionView {
         ])
         .areas(area);
 
-        Block::default()
-            .style(user_message_style(terminal_palette::default_bg()))
-            .render(content_area, buf);
+        // Transparent popup background to blend with terminal.
+        Block::default().render(content_area, buf);
 
         let header_height = self
             .header

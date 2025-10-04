@@ -5,13 +5,14 @@ use crossterm::event::KeyModifiers;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Constraint;
 use ratatui::layout::Layout;
-use ratatui::layout::Margin;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::style::Stylize;
 use ratatui::text::Line;
 use ratatui::text::Span;
 use ratatui::widgets::Block;
+use ratatui::widgets::BorderType;
+use ratatui::widgets::Borders;
 use ratatui::widgets::StatefulWidgetRef;
 use ratatui::widgets::WidgetRef;
 
@@ -37,8 +38,6 @@ use crate::bottom_pane::prompt_args::prompt_command_with_arg_placeholders;
 use crate::bottom_pane::prompt_args::prompt_has_numeric_placeholders;
 use crate::slash_command::SlashCommand;
 use crate::slash_command::built_in_slash_commands;
-use crate::style::user_message_style;
-use crate::terminal_palette;
 use codex_protocol::custom_prompts::CustomPrompt;
 use codex_protocol::custom_prompts::PROMPTS_CMD_PREFIX;
 
@@ -49,7 +48,6 @@ use crate::bottom_pane::textarea::TextAreaState;
 use crate::clipboard_paste::normalize_pasted_path;
 use crate::clipboard_paste::pasted_image_format;
 use crate::history_cell;
-use crate::ui_consts::LIVE_PREFIX_COLS;
 use codex_file_search::FileMatch;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -122,6 +120,12 @@ enum ActivePopup {
 const FOOTER_SPACING_HEIGHT: u16 = 0;
 
 impl ChatComposer {
+    #[inline]
+    fn compute_margin(total_w: u16) -> u16 {
+        let mut margin = total_w / 20; // ~5% on each side
+        margin = margin.clamp(2, 10);
+        margin
+    }
     pub fn new(
         has_input_focus: bool,
         app_event_tx: AppEventSender,
@@ -166,9 +170,11 @@ impl ChatComposer {
             .unwrap_or_else(|| footer_height(footer_props));
         let footer_spacing = Self::footer_spacing(footer_hint_height);
         let footer_total_height = footer_hint_height + footer_spacing;
-        self.textarea
-            .desired_height(width.saturating_sub(LIVE_PREFIX_COLS))
-            + 2
+        // Measure using the inner width that aligns with the underline, then
+        // reserve 1 line for the underline itself.
+        let margin = Self::compute_margin(width);
+        let inner_w = width.saturating_sub(margin.saturating_mul(2));
+        self.textarea.desired_height(inner_w).saturating_add(1)
             + match &self.active_popup {
                 ActivePopup::None => footer_total_height,
                 ActivePopup::Command(c) => c.calculate_required_height(width),
@@ -190,16 +196,15 @@ impl ChatComposer {
             ActivePopup::File(popup) => Constraint::Max(popup.calculate_required_height()),
             ActivePopup::None => Constraint::Max(footer_total_height),
         };
-        let mut area = area;
-        if area.height > 1 {
-            area.height -= 1;
-            area.y += 1;
-        }
         let [composer_rect, popup_rect] =
             Layout::vertical([Constraint::Min(1), popup_constraint]).areas(area);
+        // Textarea occupies all but the last row (used for underline) and aligns
+        // horizontally with the underline margins.
         let mut textarea_rect = composer_rect;
-        textarea_rect.width = textarea_rect.width.saturating_sub(LIVE_PREFIX_COLS);
-        textarea_rect.x = textarea_rect.x.saturating_add(LIVE_PREFIX_COLS);
+        let margin = Self::compute_margin(textarea_rect.width);
+        textarea_rect.x = textarea_rect.x.saturating_add(margin);
+        textarea_rect.width = textarea_rect.width.saturating_sub(margin.saturating_mul(2));
+        textarea_rect.height = textarea_rect.height.saturating_sub(1);
         [composer_rect, textarea_rect, popup_rect]
     }
 
@@ -1533,24 +1538,32 @@ impl WidgetRef for ChatComposer {
                 }
             }
         }
-        let style = user_message_style(terminal_palette::default_bg());
-        let mut block_rect = composer_rect;
-        block_rect.y = composer_rect.y.saturating_sub(1);
-        block_rect.height = composer_rect.height.saturating_add(1);
-        Block::default().style(style).render_ref(block_rect, buf);
-        buf.set_span(
-            composer_rect.x,
-            composer_rect.y,
-            &"›".bold(),
-            composer_rect.width,
-        );
+        // Transparent composer background (no fill) to blend with terminal.
+        // Draw a single, centered bottom underline that's almost full width
+        // (leave a small margin on both sides).
+        let underline_y = composer_rect
+            .y
+            .saturating_add(composer_rect.height.saturating_sub(1));
+        let total_w = composer_rect.width;
+        let margin = Self::compute_margin(total_w);
+        // Ensure the underline remains visible even on very narrow widths.
+        let inner_w = total_w.saturating_sub(margin.saturating_mul(2)).max(1);
+        let underline_rect = Rect {
+            x: composer_rect.x.saturating_add(margin),
+            y: underline_y,
+            width: inner_w,
+            height: 1,
+        };
+
+        let block = Block::default()
+            .borders(Borders::BOTTOM)
+            .border_type(BorderType::Plain)
+            .style(Style::default());
+        block.render_ref(underline_rect, buf);
 
         let mut state = self.textarea_state.borrow_mut();
         StatefulWidgetRef::render_ref(&(&self.textarea), textarea_rect, buf, &mut state);
-        if self.textarea.text().is_empty() {
-            let placeholder = Span::from(self.placeholder_text.as_str()).dim();
-            Line::from(vec![placeholder]).render_ref(textarea_rect.inner(Margin::new(0, 0)), buf);
-        }
+        // No placeholder: only show user-entered text.
     }
 }
 
